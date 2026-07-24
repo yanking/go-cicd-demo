@@ -52,7 +52,9 @@ func TestApiEndpoint(t *testing.T) {
 			}
 
 			var resp Response
-			json.NewDecoder(rr.Body).Decode(&resp)
+			if err := json.NewDecoder(rr.Body).Decode(&resp); err != nil {
+				t.Fatalf("failed to decode response: %v", err)
+			}
 
 			if resp.Message != tt.wantMsg {
 				t.Errorf("expected %s, got %s", tt.wantMsg, resp.Message)
