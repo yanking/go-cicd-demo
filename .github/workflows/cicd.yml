@@ -155,9 +155,11 @@ jobs:
       IMAGE_NAME: go-cicd-demo
     steps:
       - uses: actions/checkout@v4
-
-      - name: Configure Docker for insecure registry
+      - name: Setup Docker permissions and insecure registry
         run: |
+          # Ensure ubuntu user can access docker
+          sudo usermod -aG docker $USER || true
+          # Add insecure registry
           sudo python3 -c "
           import json
           with open('/etc/docker/daemon.json') as f: cfg=json.load(f)
@@ -169,28 +171,25 @@ jobs:
           cat /etc/docker/daemon.json
           sudo systemctl restart docker
           sleep 5
-          # Wait for Docker to be ready
-          for i in $(seq 1 10); do
-            docker info >/dev/null 2>&1 && break
-            sleep 2
-          done
-          docker info 2>/dev/null | grep -i -A 1 "Insecure" || echo "WARNING: insecure registries not found in docker info"
+          # Use sg to pick up new docker group membership
+          sg docker -c 'docker info' 2>/dev/null | grep -i -A 1 "Insecure" || sudo docker info 2>/dev/null | grep -i -A 1 "Insecure"
 
       - name: Login to Zot registry
-        run: echo "${{ secrets.ZOT_PASSWORD }}" | docker login ${{ env.ZOT_REGISTRY }} -u zot --password-stdin
+        run: sg docker -c 'echo "${{ secrets.ZOT_PASSWORD }}" | docker login ${{ env.ZOT_REGISTRY }} -u zot --password-stdin'
+
       - name: Build Docker image
         run: |
-          docker build -t ${{ env.ZOT_REGISTRY }}/${{ env.IMAGE_NAME }}:latest \
-                       -t ${{ env.ZOT_REGISTRY }}/${{ env.IMAGE_NAME }}:${{ github.sha }} .
+          sg docker -c 'docker build -t ${{ env.ZOT_REGISTRY }}/${{ env.IMAGE_NAME }}:latest \
+                       -t ${{ env.ZOT_REGISTRY }}/${{ env.IMAGE_NAME }}:${{ github.sha }} .'
 
       - name: Push to Zot registry
         run: |
-          docker push ${{ env.ZOT_REGISTRY }}/${{ env.IMAGE_NAME }}:latest
-          docker push ${{ env.ZOT_REGISTRY }}/${{ env.IMAGE_NAME }}:${{ github.sha }}
+          sg docker -c 'docker push ${{ env.ZOT_REGISTRY }}/${{ env.IMAGE_NAME }}:latest'
+          sg docker -c 'docker push ${{ env.ZOT_REGISTRY }}/${{ env.IMAGE_NAME }}:${{ github.sha }}'
 
       - name: Smoke test Docker container
         run: |
-          docker run -d -p 9090:8080 ${{ env.ZOT_REGISTRY }}/${{ env.IMAGE_NAME }}:${{ github.sha }}
+          sg docker -c 'docker run -d -p 9090:8080 ${{ env.ZOT_REGISTRY }}/${{ env.IMAGE_NAME }}:${{ github.sha }}'
           sleep 3
           HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" http://localhost:9090/health)
           echo "Docker container health: HTTP $HTTP_CODE"
@@ -199,7 +198,7 @@ jobs:
             exit 1
           fi
           echo "PASS: Docker container smoke test passed"
-          docker stop $(docker ps -q) 2>/dev/null || true
+          sg docker -c 'docker stop $(docker ps -q)' 2>/dev/null || true
 
       - name: Verify image in registry
         run: |
