@@ -165,19 +165,15 @@ jobs:
       - name: Login to Zot registry
         run: echo "${{ secrets.ZOT_PASSWORD }}" | docker login ${{ env.ZOT_REGISTRY }} -u zot --password-stdin
 
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
-        with:
-          driver-opts: network=host
+      - name: Build Docker image
+        run: |
+          docker build -t ${{ env.ZOT_REGISTRY }}/${{ env.IMAGE_NAME }}:latest \
+                       -t ${{ env.ZOT_REGISTRY }}/${{ env.IMAGE_NAME }}:${{ github.sha }} .
 
-      - name: Build and push image
-        uses: docker/build-push-action@v6
-        with:
-          context: .
-          push: true
-          tags: |
-            ${{ env.ZOT_REGISTRY }}/${{ env.IMAGE_NAME }}:latest
-            ${{ env.ZOT_REGISTRY }}/${{ env.IMAGE_NAME }}:${{ github.sha }}
+      - name: Push to Zot registry
+        run: |
+          docker push ${{ env.ZOT_REGISTRY }}/${{ env.IMAGE_NAME }}:latest
+          docker push ${{ env.ZOT_REGISTRY }}/${{ env.IMAGE_NAME }}:${{ github.sha }}
 
       - name: Smoke test Docker container
         run: |
