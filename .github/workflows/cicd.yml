@@ -144,27 +144,33 @@ jobs:
         run: |
           kill ${{ env.SERVER_PID }} 2>/dev/null || true
 
-  # ─────────── Stage 5: Docker Build & Push to zot ───────────
+  # ─────────── Stage 5: Docker Build & Push to zot (self-hosted runner) ───────────
   docker:
     name: Build & Push to Zot Registry
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, zot]
     needs: smoke-test
     if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master'
     env:
-      ZOT_REGISTRY: 124.221.142.67:30149
+      ZOT_REGISTRY: localhost:30149
       IMAGE_NAME: go-cicd-demo
     steps:
       - uses: actions/checkout@v4
 
-      - name: Configure Docker for insecure registry (HTTP)
+      - name: Configure Docker for insecure registry
         run: |
-          echo '{"insecure-registries": ["${{ env.ZOT_REGISTRY }}"]}' | sudo tee /etc/docker/daemon.json
+          sudo python3 -c "
+          import json
+          with open('/etc/docker/daemon.json') as f: cfg=json.load(f)
+          cfg.setdefault('insecure-registries', [])
+          if '$ZOT_REGISTRY' not in cfg['insecure-registries']:
+              cfg['insecure-registries'].append('$ZOT_REGISTRY')
+          with open('/etc/docker/daemon.json','w') as f: json.dump(cfg,f,indent=2)
+          "
           sudo systemctl restart docker
           sleep 3
 
       - name: Login to Zot registry
         run: echo "${{ secrets.ZOT_PASSWORD }}" | docker login ${{ env.ZOT_REGISTRY }} -u zot --password-stdin
-
       - name: Build Docker image
         run: |
           docker build -t ${{ env.ZOT_REGISTRY }}/${{ env.IMAGE_NAME }}:latest \
